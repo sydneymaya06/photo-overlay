@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Align Cam</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #101214;
+    --panel: #1b1e22;
+    --line: #343941;
+    --text: #eef0f2;
+    --muted: #9aa1ab;
+    --accent: #5ec8ff;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; }
+  #stageWrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
+  #stage { position: relative; max-width: 100%; max-height: 100%; background: #000; border-radius: 6px; overflow: hidden; }
+  video { display: block; width: 100%; height: 100%; object-fit: fill; }
+  #overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
+    pointer-events: none; opacity: .4; display: none; }
+  #msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 24px; text-align: center; color: var(--muted); line-height: 1.4; }
+  #controls { background: var(--panel); border-top: 1px solid var(--line); padding: 10px 14px 12px; }
+  .row { display: flex; align-items: center; gap: 10px; }
+  .slider { margin-bottom: 10px; }
+  .slider label { font-size: 13px; color: var(--muted); min-width: 58px; }
+  input[type=range] { flex: 1; accent-color: var(--accent); }
+  button, .btn { font: inherit; font-size: 15px; color: var(--text); background: transparent;
+    border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+  button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .spacer { flex: 1; }
+  #shutter { width: 68px; height: 68px; border-radius: 50%; border: 4px solid var(--text);
+    background: var(--text); box-shadow: inset 0 0 0 4px var(--panel); padding: 0; }
+  #shutter:active { background: var(--accent); }
+  #thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line);
+    background: #000; display: none; }
+  .tools { justify-content: space-between; margin-bottom: 10px; }
+  input[type=file] { display: none; }
+</style>
+</head>
+<body>
+<div id="stageWrap">
+  <div id="stage" style="aspect-ratio: 3/4;">
+    <video id="video" autoplay playsinline muted></video>
+    <img id="overlay" alt="">
+    <div id="msg">Starting camera…</div>
+  </div>
+</div>
+
+<div id="controls">
+  <div class="row tools">
+    <label class="btn" for="pick">Choose overlay</label>
+    <input id="pick" type="file" accept="image/*">
+    <button id="toggle" type="button">Hide overlay</button>
+    <button id="flip" type="button">Flip camera</button>
+  </div>
+  <div class="row slider">
+    <label for="opacity">Opacity</label>
+    <input id="opacity" type="range" min="5" max="95" value="40">
+  </div>
+  <div class="row">
+    <img id="thumb" alt="Last photo">
+    <div class="spacer"></div>
+    <button id="shutter" type="button" aria-label="Take photo"></button>
+    <div class="spacer"></div>
+    <button id="mirrorOv" type="button">Mirror overlay</button>
+  </div>
+</div>
+
+<canvas id="canvas" hidden></canvas>
+
+<script>
+const video = document.getElementById('video');
+const stage = document.getElementById('stage');
+const overlay = document.getElementById('overlay');
+const msg = document.getElementById('msg');
+const thumb = document.getElementById('thumb');
+let facing = 'environment';
+let stream = null;
+let overlayOn = true;
+let mirrored = false;
+let lastUrl = null;
+
+async function startCamera() {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  msg.style.display = 'flex';
+  msg.textContent = 'Starting camera…';
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 4096 }, height: { ideal: 3072 } },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    msg.style.display = 'none';
+  } catch (e) {
+    msg.textContent = 'Camera unavailable. Allow camera access in Safari settings and make sure the page is open over HTTPS. (' + e.name + ')';
+  }
+}
+
+video.addEventListener('loadedmetadata', () => {
+  // Stage matches the true frame shape, so what you see is exactly what is captured.
+  stage.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
+});
+
+document.getElementById('pick').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (!f) return;
+  if (overlay.dataset.url) URL.revokeObjectURL(overlay.dataset.url);
+  const url = URL.createObjectURL(f);
+  overlay.dataset.url = url;
+  overlay.src = url;
+  overlayOn = true;
+  overlay.style.display = 'block';
+  document.getElementById('toggle').textContent = 'Hide overlay';
+});
+
+document.getElementById('opacity').addEventListener('input', e => {
+  overlay.style.opacity = e.target.value / 100;
+});
+
+document.getElementById('toggle').addEventListener('click', e => {
+  if (!overlay.src) return;
+  overlayOn = !overlayOn;
+  overlay.style.display = overlayOn ? 'block' : 'none';
+  e.target.textContent = overlayOn ? 'Hide overlay' : 'Show overlay';
+});
+
+document.getElementById('mirrorOv').addEventListener('click', () => {
+  mirrored = !mirrored;
+  overlay.style.transform = mirrored ? 'scaleX(-1)' : 'none';
+});
+
+document.getElementById('flip').addEventListener('click', () => {
+  facing = facing === 'environment' ? 'user' : 'environment';
+  startCamera();
+});
+
+document.getElementById('shutter').addEventListener('click', () => {
+  if (!video.videoWidth) return;
+  const c = document.getElementById('canvas');
+  c.width = video.videoWidth;
+  c.height = video.videoHeight;
+  // Only the video frame is drawn. The overlay is never added to the saved image.
+  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+  c.toBlob(async blob => {
+    if (!blob) return;
+    if (lastUrl) URL.revokeObjectURL(lastUrl);
+    lastUrl = URL.createObjectURL(blob);
+    thumb.src = lastUrl;
+    thumb.style.display = 'block';
+    const file = new File([blob], 'photo-' + Date.now() + '.jpg', { type: 'image/jpeg' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file] }); // choose "Save Image" to add it to Photos
+        return;
+      }
+    } catch (err) { if (err.name === 'AbortError') return; }
+    const a = document.createElement('a');
+    a.href = lastUrl; a.download = file.name; a.click();
+  }, 'image/jpeg', 0.95);
+});
+
+startCamera();
+</script>
+</body>
+</html>
