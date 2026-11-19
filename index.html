@@ -22,19 +22,22 @@
     font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
   body { display: flex; flex-direction: column; }
   #stageWrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
-  #stage { position: relative; max-width: 100%; max-height: 100%; background: #000; border-radius: 6px; overflow: hidden; }
-  video { display: block; width: 100%; height: 100%; object-fit: fill; }
+  #stage { position: relative; max-width: 100%; max-height: 100%; background: #000; border-radius: 6px;
+    overflow: hidden; touch-action: none; }
+  video { display: block; width: 100%; height: 100%; object-fit: fill; transform-origin: center center; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain;
     pointer-events: none; opacity: .4; display: none; }
   #msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     padding: 24px; text-align: center; color: var(--muted); line-height: 1.4; }
   #controls { background: var(--panel); border-top: 1px solid var(--line); padding: 10px 14px 12px; }
   .row { display: flex; align-items: center; gap: 10px; }
-  .slider { margin-bottom: 10px; }
-  .slider label { font-size: 13px; color: var(--muted); min-width: 58px; }
+  .slider { margin-bottom: 8px; }
+  .lbl { font-size: 13px; color: var(--muted); min-width: 92px; text-align: left; background: none;
+    border: 0; padding: 6px 0; }
   input[type=range] { flex: 1; accent-color: var(--accent); }
   button, .btn { font: inherit; font-size: 15px; color: var(--text); background: transparent;
     border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+  button.lbl { border: 0; font-size: 13px; color: var(--muted); }
   button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .spacer { flex: 1; }
   #shutter { width: 68px; height: 68px; border-radius: 50%; border: 4px solid var(--text);
@@ -42,7 +45,7 @@
   #shutter:active { background: var(--accent); }
   #thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line);
     background: #000; display: none; }
-  .tools { justify-content: space-between; margin-bottom: 10px; }
+  .tools { justify-content: space-between; margin-bottom: 8px; }
   input[type=file] { display: none; }
 </style>
 </head>
@@ -63,8 +66,16 @@
     <button id="flip" type="button">Flip camera</button>
   </div>
   <div class="row slider">
-    <label for="opacity">Opacity</label>
-    <input id="opacity" type="range" min="5" max="95" value="40">
+    <button class="lbl" id="opLbl" type="button">Overlay 40%</button>
+    <input id="opacity" type="range" min="5" max="95" value="40" aria-label="Overlay opacity">
+  </div>
+  <div class="row slider">
+    <button class="lbl" id="zoomLbl" type="button">Zoom 1.0×</button>
+    <input id="zoom" type="range" min="1" max="5" step="0.1" value="1" aria-label="Zoom">
+  </div>
+  <div class="row slider">
+    <button class="lbl" id="brLbl" type="button">Brightness 0</button>
+    <input id="bright" type="range" min="-50" max="50" step="1" value="0" aria-label="Brightness">
   </div>
   <div class="row">
     <img id="thumb" alt="Last photo">
@@ -78,17 +89,18 @@
 <canvas id="canvas" hidden></canvas>
 
 <script>
-const video = document.getElementById('video');
-const stage = document.getElementById('stage');
-const overlay = document.getElementById('overlay');
-const msg = document.getElementById('msg');
-const thumb = document.getElementById('thumb');
-let facing = 'environment';
-let stream = null;
-let overlayOn = true;
-let mirrored = false;
-let lastUrl = null;
+const $ = id => document.getElementById(id);
+const video = $('video'), stage = $('stage'), overlay = $('overlay'), msg = $('msg'), thumb = $('thumb');
+const zoomEl = $('zoom'), brightEl = $('bright');
+let facing = 'environment', stream = null, track = null;
+let overlayOn = true, mirrored = false, lastUrl = null;
+let hwZoom = false;      // true when the camera itself supports zoom
+let zoom = 1;            // current zoom factor
+let brightness = 0;      // -50..50, maps to a 0.5x..1.5x multiplier
 
+const factor = () => 1 + brightness / 100;
+
+/* ---------- camera ---------- */
 async function startCamera() {
   if (stream) stream.getTracks().forEach(t => t.stop());
   msg.style.display = 'flex';
@@ -101,17 +113,76 @@ async function startCamera() {
     video.srcObject = stream;
     await video.play();
     msg.style.display = 'none';
+    track = stream.getVideoTracks()[0];
+    setupZoom();
   } catch (e) {
     msg.textContent = 'Camera unavailable. Allow camera access in Safari settings and make sure the page is open over HTTPS. (' + e.name + ')';
   }
 }
 
 video.addEventListener('loadedmetadata', () => {
-  // Stage matches the true frame shape, so what you see is exactly what is captured.
+  // The stage matches the true frame shape, so what you see is what is captured.
   stage.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
 });
 
-document.getElementById('pick').addEventListener('change', e => {
+/* ---------- zoom ---------- */
+function setupZoom() {
+  let caps = {};
+  try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) {}
+  if (caps.zoom && caps.zoom.max > caps.zoom.min) {
+    hwZoom = true;
+    zoomEl.min = caps.zoom.min;
+    zoomEl.max = Math.min(caps.zoom.max, 10);
+    zoomEl.step = caps.zoom.step || 0.1;
+  } else {
+    hwZoom = false;
+    zoomEl.min = 1; zoomEl.max = 5; zoomEl.step = 0.1;
+  }
+  applyZoom(+zoomEl.min);
+}
+
+function applyZoom(z) {
+  const min = +zoomEl.min, max = +zoomEl.max;
+  zoom = Math.min(max, Math.max(min, z));
+  zoomEl.value = zoom;
+  if (hwZoom) {
+    video.style.transform = 'none';
+    track.applyConstraints({ advanced: [{ zoom }] }).catch(() => {});
+  } else {
+    video.style.transform = 'scale(' + zoom + ')';   // digital zoom, cropped again at capture
+  }
+  $('zoomLbl').textContent = 'Zoom ' + zoom.toFixed(1) + '×';
+}
+
+zoomEl.addEventListener('input', e => applyZoom(+e.target.value));
+$('zoomLbl').addEventListener('click', () => applyZoom(+zoomEl.min));
+
+// Pinch to zoom on the preview
+let pinchStart = null;
+const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+stage.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) pinchStart = { d: dist(e.touches), z: zoom };
+}, { passive: false });
+stage.addEventListener('touchmove', e => {
+  if (e.touches.length === 2 && pinchStart) {
+    e.preventDefault();
+    applyZoom(pinchStart.z * dist(e.touches) / pinchStart.d);
+  }
+}, { passive: false });
+stage.addEventListener('touchend', () => { pinchStart = null; });
+
+/* ---------- brightness ---------- */
+function applyBrightness(b) {
+  brightness = b;
+  brightEl.value = b;
+  video.style.filter = b === 0 ? 'none' : 'brightness(' + factor() + ')';
+  $('brLbl').textContent = 'Brightness ' + (b > 0 ? '+' : '') + b;
+}
+brightEl.addEventListener('input', e => applyBrightness(+e.target.value));
+$('brLbl').addEventListener('click', () => applyBrightness(0));
+
+/* ---------- overlay ---------- */
+$('pick').addEventListener('change', e => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
   if (overlay.dataset.url) URL.revokeObjectURL(overlay.dataset.url);
@@ -120,37 +191,57 @@ document.getElementById('pick').addEventListener('change', e => {
   overlay.src = url;
   overlayOn = true;
   overlay.style.display = 'block';
-  document.getElementById('toggle').textContent = 'Hide overlay';
+  $('toggle').textContent = 'Hide overlay';
 });
 
-document.getElementById('opacity').addEventListener('input', e => {
+$('opacity').addEventListener('input', e => {
   overlay.style.opacity = e.target.value / 100;
+  $('opLbl').textContent = 'Overlay ' + e.target.value + '%';
 });
 
-document.getElementById('toggle').addEventListener('click', e => {
+$('toggle').addEventListener('click', e => {
   if (!overlay.src) return;
   overlayOn = !overlayOn;
   overlay.style.display = overlayOn ? 'block' : 'none';
   e.target.textContent = overlayOn ? 'Hide overlay' : 'Show overlay';
 });
 
-document.getElementById('mirrorOv').addEventListener('click', () => {
+$('mirrorOv').addEventListener('click', () => {
   mirrored = !mirrored;
   overlay.style.transform = mirrored ? 'scaleX(-1)' : 'none';
 });
 
-document.getElementById('flip').addEventListener('click', () => {
+$('flip').addEventListener('click', () => {
   facing = facing === 'environment' ? 'user' : 'environment';
   startCamera();
 });
 
-document.getElementById('shutter').addEventListener('click', () => {
+/* ---------- capture ---------- */
+$('shutter').addEventListener('click', () => {
   if (!video.videoWidth) return;
-  const c = document.getElementById('canvas');
-  c.width = video.videoWidth;
-  c.height = video.videoHeight;
+  const vw = video.videoWidth, vh = video.videoHeight;
+  const crop = hwZoom ? 1 : zoom;                 // digital zoom crops the center
+  const cw = Math.round(vw / crop), ch = Math.round(vh / crop);
+  const sx = Math.round((vw - cw) / 2), sy = Math.round((vh - ch) / 2);
+
+  const c = $('canvas');
+  c.width = cw; c.height = ch;
+  const ctx = c.getContext('2d', { willReadFrequently: brightness !== 0 });
   // Only the video frame is drawn. The overlay is never added to the saved image.
-  c.getContext('2d').drawImage(video, 0, 0, c.width, c.height);
+  ctx.drawImage(video, sx, sy, cw, ch, 0, 0, cw, ch);
+
+  if (brightness !== 0) {
+    const f = factor();
+    const lut = new Uint8ClampedArray(256);
+    for (let i = 0; i < 256; i++) lut[i] = i * f;
+    const img = ctx.getImageData(0, 0, cw, ch);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]];
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
   c.toBlob(async blob => {
     if (!blob) return;
     if (lastUrl) URL.revokeObjectURL(lastUrl);
