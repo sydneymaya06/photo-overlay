@@ -13,7 +13,7 @@
     --line: #343941;
     --text: #eef0f2;
     --muted: #9aa1ab;
-    --accent: #5ec8ff;
+    --accent: #a070ff;
     box-sizing: border-box;
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -21,6 +21,8 @@
   html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
     font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif; }
   body { display: flex; flex-direction: column; }
+  #topBar { display: flex; gap: 8px; padding: 0 0 10px; }
+  #topBar .btn, #topBar button { flex: 1; text-align: center; font-size: 14px; padding: 10px 6px; }
   #stageWrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 8px; }
   #stage { position: relative; max-width: 100%; max-height: 100%; background: #000; border-radius: 6px;
     overflow: hidden; touch-action: none; }
@@ -29,23 +31,38 @@
     pointer-events: none; opacity: .4; display: none; }
   #msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
     padding: 24px; text-align: center; color: var(--muted); line-height: 1.4; }
+  #res { position: absolute; top: 8px; left: 8px; font-size: 11px; color: #fff; background: rgba(0,0,0,.45);
+    padding: 3px 7px; border-radius: 6px; pointer-events: none; }
+
+  /* Zoom presets float over the camera view */
+  #zoomBar { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); display: flex; gap: 6px;
+    padding: 5px; border-radius: 999px; background: rgba(0,0,0,.06); }
+  #zoomBar button { width: 44px; height: 44px; border-radius: 50%; border: 0; padding: 0; font-size: 13px;
+    font-weight: 600; color: #fff; background: rgba(255,255,255,.03);
+    text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+  #zoomBar button.active { background: rgba(160,112,255,.4); color: #fff; }
+  #zoomBar button[hidden] { display: none; }
+
   #controls { background: var(--panel); border-top: 1px solid var(--line); padding: 10px 14px 12px; }
+  #settings[hidden] { display: none; }
   .row { display: flex; align-items: center; gap: 10px; }
+  .wrap { flex-wrap: wrap; margin-bottom: 8px; }
   .slider { margin-bottom: 8px; }
-  .lbl { font-size: 13px; color: var(--muted); min-width: 92px; text-align: left; background: none;
+  .lbl { font-size: 13px; color: var(--muted); min-width: 108px; text-align: left; background: none;
     border: 0; padding: 6px 0; }
   input[type=range] { flex: 1; accent-color: var(--accent); }
   button, .btn { font: inherit; font-size: 15px; color: var(--text); background: transparent;
     border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
   button.lbl { border: 0; font-size: 13px; color: var(--muted); }
   button:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .spacer { flex: 1; }
+  #shutterRow { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
+  #shutterRow .left { justify-self: start; }
+  #shutterRow .right { justify-self: end; }
   #shutter { width: 68px; height: 68px; border-radius: 50%; border: 4px solid var(--text);
     background: var(--text); box-shadow: inset 0 0 0 4px var(--panel); padding: 0; }
   #shutter:active { background: var(--accent); }
   #thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line);
     background: #000; display: none; }
-  .tools { justify-content: space-between; margin-bottom: 8px; }
   input[type=file] { display: none; }
 </style>
 </head>
@@ -54,35 +71,37 @@
   <div id="stage" style="aspect-ratio: 3/4;">
     <video id="video" autoplay playsinline muted></video>
     <img id="overlay" alt="">
+    <div id="res"></div>
+    <div id="zoomBar" role="group" aria-label="Zoom">
+      <button type="button" data-z="0.5">0.5×</button>
+      <button type="button" data-z="1" class="active">1×</button>
+      <button type="button" data-z="2">2×</button>
+    </div>
     <div id="msg">Starting camera…</div>
   </div>
 </div>
 
 <div id="controls">
-  <div class="row tools">
+  <div id="settings">
+  <div id="topBar">
     <label class="btn" for="pick">Choose overlay</label>
     <input id="pick" type="file" accept="image/*">
-    <button id="toggle" type="button">Hide overlay</button>
+    <button id="mirrorOv" type="button">Mirror overlay</button>
     <button id="flip" type="button">Flip camera</button>
   </div>
-  <div class="row slider">
-    <button class="lbl" id="opLbl" type="button">Overlay 40%</button>
-    <input id="opacity" type="range" min="5" max="95" value="40" aria-label="Overlay opacity">
+    <div class="row slider">
+      <button class="lbl" id="opLbl" type="button">Overlay 40%</button>
+      <input id="opacity" type="range" min="5" max="95" value="40" aria-label="Overlay opacity">
+    </div>
+    <div class="row slider">
+      <button class="lbl" id="brLbl" type="button">Brightness 0</button>
+      <input id="bright" type="range" min="-50" max="50" step="1" value="0" aria-label="Brightness">
+    </div>
   </div>
-  <div class="row slider">
-    <button class="lbl" id="zoomLbl" type="button">Zoom 1.0×</button>
-    <input id="zoom" type="range" min="1" max="5" step="0.1" value="1" aria-label="Zoom">
-  </div>
-  <div class="row slider">
-    <button class="lbl" id="brLbl" type="button">Brightness 0</button>
-    <input id="bright" type="range" min="-50" max="50" step="1" value="0" aria-label="Brightness">
-  </div>
-  <div class="row">
-    <img id="thumb" alt="Last photo">
-    <div class="spacer"></div>
+  <div id="shutterRow">
+    <div class="left"><img id="thumb" alt="Last photo"></div>
     <button id="shutter" type="button" aria-label="Take photo"></button>
-    <div class="spacer"></div>
-    <button id="mirrorOv" type="button">Mirror overlay</button>
+    <div class="right"><button id="settingsToggle" type="button" aria-expanded="true">Hide settings</button></div>
   </div>
 </div>
 
@@ -91,11 +110,12 @@
 <script>
 const $ = id => document.getElementById(id);
 const video = $('video'), stage = $('stage'), overlay = $('overlay'), msg = $('msg'), thumb = $('thumb');
-const zoomEl = $('zoom'), brightEl = $('bright');
+const brightEl = $('bright');
+const zoomBtns = [...document.querySelectorAll('#zoomBar button')];
 let facing = 'environment', stream = null, track = null;
-let overlayOn = true, mirrored = false, lastUrl = null;
+let mirrored = false, lastUrl = null;
 let hwZoom = false;      // true when the camera itself supports zoom
-let zoom = 1;            // current zoom factor
+let zoom = 1;
 let brightness = 0;      // -50..50, maps to a 0.5x..1.5x multiplier
 
 const factor = () => 1 + brightness / 100;
@@ -107,7 +127,7 @@ async function startCamera() {
   msg.textContent = 'Starting camera…';
   try {
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: facing }, width: { ideal: 4096 }, height: { ideal: 3072 } },
+      video: { facingMode: { ideal: facing }, width: { ideal: 4032 }, height: { ideal: 3024 } },
       audio: false
     });
     video.srcObject = stream;
@@ -120,56 +140,65 @@ async function startCamera() {
   }
 }
 
-video.addEventListener('loadedmetadata', () => {
+function sizeStage() {
+  if (!video.videoWidth) return;
   // The stage matches the true frame shape, so what you see is what is captured.
   stage.style.aspectRatio = video.videoWidth + ' / ' + video.videoHeight;
-});
+  updateInfo();
+}
+function updateInfo() {
+  if (!video.videoWidth) return;
+  $('res').textContent = video.videoWidth + ' × ' + video.videoHeight + '  ·  ' + zoom.toFixed(1) + '×';
+}
+video.addEventListener('loadedmetadata', sizeStage);
+video.addEventListener('resize', sizeStage);
 
-/* ---------- zoom ---------- */
+/* ---------- zoom presets: 0.5x, 1x, 2x only ---------- */
+let zMin = 1, zMax = 2;
+
 function setupZoom() {
   let caps = {};
   try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) {}
   if (caps.zoom && caps.zoom.max > caps.zoom.min) {
     hwZoom = true;
-    zoomEl.min = caps.zoom.min;
-    zoomEl.max = Math.min(caps.zoom.max, 10);
-    zoomEl.step = caps.zoom.step || 0.1;
+    zMin = caps.zoom.min; zMax = Math.min(caps.zoom.max, 10);
   } else {
-    hwZoom = false;
-    zoomEl.min = 1; zoomEl.max = 5; zoomEl.step = 0.1;
+    hwZoom = false;               // digital zoom, pinch up to 5x
+    zMin = 1; zMax = 5;
   }
-  applyZoom(+zoomEl.min);
+  zoomBtns.forEach(b => {
+    const z = +b.dataset.z;
+    b.hidden = z < zMin - 0.01 || z > zMax + 0.01;
+  });
+  applyZoom(1);                   // always start at 1x
 }
 
 function applyZoom(z) {
-  const min = +zoomEl.min, max = +zoomEl.max;
-  zoom = Math.min(max, Math.max(min, z));
-  zoomEl.value = zoom;
+  zoom = Math.min(zMax, Math.max(zMin, z));
   if (hwZoom) {
     video.style.transform = 'none';
     track.applyConstraints({ advanced: [{ zoom }] }).catch(() => {});
   } else {
-    video.style.transform = 'scale(' + zoom + ')';   // digital zoom, cropped again at capture
+    video.style.transform = zoom === 1 ? 'none' : 'scale(' + zoom + ')';  // cropped again at capture
   }
-  $('zoomLbl').textContent = 'Zoom ' + zoom.toFixed(1) + '×';
+  zoomBtns.forEach(b => b.classList.toggle('active', Math.abs(+b.dataset.z - zoom) < 0.05));
+  updateInfo();
 }
+zoomBtns.forEach(b => b.addEventListener('click', () => applyZoom(+b.dataset.z)));
 
-zoomEl.addEventListener('input', e => applyZoom(+e.target.value));
-$('zoomLbl').addEventListener('click', () => applyZoom(+zoomEl.min));
-
-// Pinch to zoom on the preview
-let pinchStart = null;
+// Pinch to zoom on the preview (continuous, within the camera's range)
+let pinch = null;
 const dist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 stage.addEventListener('touchstart', e => {
-  if (e.touches.length === 2) pinchStart = { d: dist(e.touches), z: zoom };
+  if (e.touches.length === 2) pinch = { d: dist(e.touches), z: zoom };
 }, { passive: false });
 stage.addEventListener('touchmove', e => {
-  if (e.touches.length === 2 && pinchStart) {
+  if (e.touches.length === 2 && pinch) {
     e.preventDefault();
-    applyZoom(pinchStart.z * dist(e.touches) / pinchStart.d);
+    applyZoom(pinch.z * dist(e.touches) / pinch.d);
   }
 }, { passive: false });
-stage.addEventListener('touchend', () => { pinchStart = null; });
+stage.addEventListener('touchend', () => { pinch = null; });
 
 /* ---------- brightness ---------- */
 function applyBrightness(b) {
@@ -189,21 +218,12 @@ $('pick').addEventListener('change', e => {
   const url = URL.createObjectURL(f);
   overlay.dataset.url = url;
   overlay.src = url;
-  overlayOn = true;
   overlay.style.display = 'block';
-  $('toggle').textContent = 'Hide overlay';
 });
 
 $('opacity').addEventListener('input', e => {
   overlay.style.opacity = e.target.value / 100;
   $('opLbl').textContent = 'Overlay ' + e.target.value + '%';
-});
-
-$('toggle').addEventListener('click', e => {
-  if (!overlay.src) return;
-  overlayOn = !overlayOn;
-  overlay.style.display = overlayOn ? 'block' : 'none';
-  e.target.textContent = overlayOn ? 'Hide overlay' : 'Show overlay';
 });
 
 $('mirrorOv').addEventListener('click', () => {
@@ -214,6 +234,14 @@ $('mirrorOv').addEventListener('click', () => {
 $('flip').addEventListener('click', () => {
   facing = facing === 'environment' ? 'user' : 'environment';
   startCamera();
+});
+
+/* ---------- minimize settings ---------- */
+$('settingsToggle').addEventListener('click', e => {
+  const s = $('settings');
+  s.hidden = !s.hidden;
+  e.target.textContent = s.hidden ? 'Settings' : 'Hide settings';
+  e.target.setAttribute('aria-expanded', String(!s.hidden));
 });
 
 /* ---------- capture ---------- */
@@ -227,7 +255,7 @@ $('shutter').addEventListener('click', () => {
   const c = $('canvas');
   c.width = cw; c.height = ch;
   const ctx = c.getContext('2d', { willReadFrequently: brightness !== 0 });
-  // Only the video frame is drawn. The overlay is never added to the saved image.
+  // Only the video frame is drawn. The overlay and buttons are never added to the saved image.
   ctx.drawImage(video, sx, sy, cw, ch, 0, 0, cw, ch);
 
   if (brightness !== 0) {
