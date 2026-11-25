@@ -64,6 +64,19 @@
   #thumb { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line);
     background: #000; display: none; }
   input[type=file] { display: none; }
+
+  /* Landscape: controls move to a panel on the right, camera fills the rest */
+  @media (orientation: landscape) {
+    :root { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+    body { flex-direction: row; }
+    #stageWrap { min-width: 0; }
+    #controls { flex: none; width: 230px; box-sizing: border-box; display: flex; flex-direction: column;
+      border-top: 0; border-left: 1px solid var(--line); overflow-y: auto; }
+    #controls:has(#settings[hidden]) { width: auto; }
+    #topBar { flex-direction: column; }
+    .lbl { min-width: 92px; }
+    #shutterRow { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: auto; padding-top: 8px; }
+  }
 </style>
 </head>
 <body>
